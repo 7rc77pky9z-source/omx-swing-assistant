@@ -151,7 +151,9 @@ let url =
 
 
 let response =
-await fetch(url);
+await fetch(url, {
+mode:"cors"
+});
 
 
 let json =
@@ -420,10 +422,11 @@ ma200:data.ma200
 
 catch(error){
 
-console.log(
+resultsDiv.innerHTML +=
+"<br>Fel på "+
 stock+
-" misslyckades"
-);
+": "+
+error.message;
 
 }
 
