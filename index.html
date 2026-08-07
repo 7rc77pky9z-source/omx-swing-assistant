@@ -16,16 +16,11 @@ background:#f2f2f2;
 padding:15px;
 }
 
-h1 {
-font-size:24px;
-}
-
 .card {
 background:white;
 padding:15px;
 margin-bottom:15px;
 border-radius:15px;
-box-shadow:0 2px 8px rgba(0,0,0,0.1);
 }
 
 button {
@@ -33,16 +28,16 @@ width:100%;
 padding:14px;
 font-size:17px;
 border-radius:10px;
-border:0;
 background:#222;
 color:white;
+border:0;
 }
 
 .result {
 background:white;
 padding:12px;
 margin-top:10px;
-border-radius:12px;
+border-radius:10px;
 }
 
 .buy {
@@ -65,7 +60,6 @@ font-size:14px;
 color:#555;
 }
 
-
 </style>
 
 </head>
@@ -85,14 +79,11 @@ color:#555;
 🔎 Scanna OMXS30
 </button>
 
-
 <p id="status" class="status">
 Redo
 </p>
 
-
 </div>
-
 
 
 <div class="card">
@@ -100,15 +91,20 @@ Redo
 <h2>Resultat</h2>
 
 <div id="results">
-Ingen scanning utförd
+Ingen scanning gjord
 </div>
-
 
 </div>
 
 
 
 <script>
+
+
+// =====================
+// DEL 1
+// Aktielista
+// =====================
 
 
 const stocks = [
@@ -139,7 +135,10 @@ const stocks = [
 "VOLV-B.ST"
 
 ];
-];
+// =====================
+// DEL 2
+// Yahoo data + indikatorer
+// =====================
 
 
 async function getStockData(ticker){
@@ -151,27 +150,8 @@ let url =
 "?range=1y&interval=1d";
 
 
-let controller = new AbortController();
-
-
-let timeout =
-setTimeout(
-()=>controller.abort(),
-8000
-);
-
-
-
-try{
-
-
 let response =
-await fetch(url,{
-signal:controller.signal
-});
-
-
-clearTimeout(timeout);
+await fetch(url);
 
 
 let json =
@@ -183,7 +163,8 @@ json.chart.result[0];
 
 
 let closes =
-result.indicators.quote[0].close
+result.indicators.quote[0]
+.close
 .filter(x=>x!==null);
 
 
@@ -234,18 +215,6 @@ sixMonth
 
 }
 
-catch(error){
-
-throw new Error(
-ticker+" fel"
-);
-
-}
-
-
-}
-
-
 
 
 function average(values){
@@ -253,9 +222,9 @@ function average(values){
 let sum=0;
 
 
-for(let v of values){
+for(let i=0;i<values.length;i++){
 
-sum+=v;
+sum+=values[i];
 
 }
 
@@ -263,6 +232,7 @@ sum+=v;
 return sum/values.length;
 
 }
+
 
 
 
@@ -302,7 +272,6 @@ loss-=change;
 }
 
 
-
 let avgGain =
 gain/period;
 
@@ -319,14 +288,11 @@ return 100;
 }
 
 
-
 let rs =
 avgGain/avgLoss;
 
 
-
 return 100-(100/(1+rs));
-
 
 }
 
@@ -364,11 +330,15 @@ let latest =
 closes[closes.length-1];
 
 
-
 return ((latest-old)/old)*100;
 
 
 }
+// =====================
+// DEL 3
+// Scanner + Swing Score
+// =====================
+
 
 async function scanMarket(){
 
@@ -381,23 +351,39 @@ let status =
 document.getElementById("status");
 
 
+status.innerHTML =
+"Startar scanning...";
+
+
 resultsDiv.innerHTML =
-"Startar...";
+""
+
 
 
 let index6m =
 await getIndexData();
 
 
+
 let results=[];
 
 
-let done=0;
+
+for(let i=0;i<stocks.length;i++){
 
 
+let stock =
+stocks[i];
 
-let jobs =
-stocks.map(async(stock)=>{
+
+status.innerHTML =
+"Analyserar "
++(i+1)+
+"/"+
+stocks.length+
+" : "+
+stock;
+
 
 
 try{
@@ -405,6 +391,7 @@ try{
 
 let data =
 await getStockData(stock);
+
 
 
 let score =
@@ -432,27 +419,15 @@ ma200:data.ma200
 
 catch(error){
 
-console.log(error.message);
+console.log(
+stock+
+" misslyckades"
+);
 
 }
 
 
-
-done++;
-
-
-status.innerHTML =
-"Analyserar "
-+done+
-"/"+
-stocks.length;
-
-
-});
-
-
-
-await Promise.all(jobs);
+}
 
 
 
@@ -463,9 +438,9 @@ results.sort(
 
 
 status.innerHTML =
-"Klart - "
-+results.length+
-" analyserade";
+"Klart - "+
+results.length+
+" aktier analyserade";
 
 
 
@@ -476,7 +451,8 @@ resultsDiv.innerHTML="";
 results.forEach(r=>{
 
 
-let css="wait";
+let css =
+"wait";
 
 
 if(r.score>=85){
@@ -484,6 +460,7 @@ if(r.score>=85){
 css="buy";
 
 }
+
 else if(r.score>=70){
 
 css="watch";
@@ -535,7 +512,6 @@ ${r.ma200.toFixed(2)}
 
 `;
 
-
 });
 
 
@@ -544,10 +520,12 @@ ${r.ma200.toFixed(2)}
 
 
 
+
 function calculateScore(data,index6m){
 
 
 let score=0;
+
 
 
 let price =
@@ -562,6 +540,7 @@ if(price>data.ma200){
 score+=25;
 
 }
+
 
 
 if(data.ma50>data.ma200){
@@ -594,6 +573,7 @@ let relative =
 data.sixMonth-index6m;
 
 
+
 if(relative>=10){
 
 score+=25;
@@ -624,8 +604,6 @@ score+=10;
 
 
 
-// Begränsa
-
 if(score>100){
 
 score=100;
@@ -635,6 +613,7 @@ score=100;
 
 
 let signal;
+
 
 
 if(score>=85){
