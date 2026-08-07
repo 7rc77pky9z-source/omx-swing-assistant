@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>OMX Swing Scanner v0.6</title>
+
+<style>
+
+body {
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+background:#f3f3f3;
+padding:15px;
+}
+
+h1 {
+font-size:24px;
+}
+
+.card {
+background:white;
+border-radius:15px;
+padding:15px;
+margin-bottom:15px;
+box-shadow:0 2px 8px rgba(0,0,0,0.1);
+}
+
+button {
+width:100%;
+padding:14px;
+border:0;
+border-radius:10px;
+background:#222;
+color:white;
+font-size:17px;
+}
+
+.result {
+background:white;
+border-radius:12px;
+padding:12px;
+margin-top:10px;
+}
+
+.buy {
+color:green;
+font-weight:bold;
+}
+
+.watch {
+color:#b88600;
+font-weight:bold;
+}
+
+.wait {
+color:red;
+font-weight:bold;
+}
+
+.small {
+font-size:14px;
+color:#555;
+}
+
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<h1>📈 OMX Swing Scanner v0.6</h1>
+
+
+<div class="card">
+
+<h2>OMXS30 Scanner</h2>
+
+<p>
+Scannar aktier enligt Swing Score-strategin
+</p>
+
+
+<button onclick="scanMarket()">
+🔎 Scanna OMXS30
+</button>
+
+
+<p id="status" class="small">
+Ej startad
+</p>
+
+
+</div>
+
+
+
+<div class="card">
+
+<h2>Resultat</h2>
+
+<div id="results">
+Inga resultat ännu
+</div>
+
+
+</div>
+
+
+
+<script>
+
+
+const stocks = [
+
+"ABB.ST",
+"ALFA.ST",
+"ASSA-B.ST",
+"ATCO-A.ST",
+"AZN.ST",
+"BOL.ST",
+"ELUX-B.ST",
+"ERIC-B.ST",
+"EVO.ST",
+"HEXA-B.ST",
+"HM-B.ST",
+"INVE-B.ST",
+"KINV-B.ST",
+"NDA-SE.ST",
+"SAND.ST",
+"SCA-B.ST",
+"SEB-A.ST",
+"SHB-A.ST",
+"SINCH.ST",
+"SKF-B.ST",
+"SWED-A.ST",
+"TELIA.ST",
+"TEL2-B.ST",
+"VOLV-B.ST"
+
+];
+
+
+async function getStockData(ticker){
+
+
+let url =
+"https://query1.finance.yahoo.com/v8/finance/chart/"
++ticker+
+"?range=1y&interval=1d";
+
+
+let response =
+await fetch(url);
+
+
+let json =
+await response.json();
+
+
+let result =
+json.chart.result[0];
+
+
+let closes =
+result.indicators.quote[0].close
+.filter(x=>x!==null);
+
+
+
+let price =
+closes[closes.length-1];
+
+
+let ma50 =
+average(closes.slice(-50));
+
+
+let ma200 =
+average(closes.slice(-200));
+
+
+let rsi =
+calculateRSI(closes,14);
+
+
+
+let old =
+closes[closes.length-126];
+
+
+let sixMonth =
+((price-old)/old)*100;
+
+
+
+return {
+
+price,
+ma50,
+ma200,
+rsi,
+sixMonth
+
+};
+
+
+}
+
+
+
+
+function average(arr){
+
+let sum=0;
+
+arr.forEach(x=>{
+sum+=x;
+});
+
+return sum/arr.length;
+
+}
+
+
+
+
+
+function calculateRSI(data,period){
+
+
+let gain=0;
+let loss=0;
+
+
+for(
+let i=data.length-period;
+i<data.length;
+i++
+){
+
+let change =
+data[i]-data[i-1];
+
+
+if(change>0){
+
+gain+=change;
+
+}
+else{
+
+loss-=change;
+
+}
+
+}
+
+
+let avgGain =
+gain/period;
+
+
+let avgLoss =
+loss/period;
+
+
+if(avgLoss===0){
+
+return 100;
+
+}
+
+
+let rs =
+avgGain/avgLoss;
+
+
+return 100-(100/(1+rs));
+
+}
+
+
+
+async function getIndexData(){
+
+
+let url =
+"https://query1.finance.yahoo.com/v8/finance/chart/%5EOMXS30?range=1y&interval=1d";
+
+
+let response =
+await fetch(url);
+
+
+let json =
+await response.json();
+
+
+let closes =
+json.chart.result[0]
+.indicators.quote[0]
+.close
+.filter(x=>x!==null);
+
+
+
+let old =
+closes[closes.length-126];
+
+
+let latest =
+closes[closes.length-1];
+
+
+return ((latest-old)/old)*100;
+
+
+}
+
+// ===============================
+// SCANNA OMXS30
+// ===============================
+
+
+async function scanMarket(){
+
+
+let output =
+document.getElementById("results");
+
+
+let status =
+document.getElementById("status");
+
+
+output.innerHTML =
+"Startar scanning...";
+
+
+let index6m =
+await getIndexData();
+
+
+let results=[];
+
+
+for(let stock of stocks){
+
+
+try{
+
+
+status.innerHTML =
+"Analyserar "+stock+"...";
+
+
+let data =
+await getStockData(stock);
+
+
+
+let score =
+calculateScore(
+data,
+index6m
+);
+
+
+
+results.push({
+
+stock:stock,
+score:score.score,
+signal:score.signal,
+price:data.price,
+rsi:data.rsi,
+ma50:data.ma50,
+ma200:data.ma200
+
+});
+
+
+}
+
+catch(error){
+
+console.log(
+"Fel vid "+stock,
+error
+);
+
+}
+
+
+}
+
+
+
+results.sort(
+(a,b)=>b.score-a.score
+);
+
+
+
+status.innerHTML =
+"Klart - "+results.length+" aktier analyserade";
+
+
+output.innerHTML="";
+
+
+
+results.forEach(r=>{
+
+
+let color="wait";
+
+
+if(r.score>=85){
+
+color="buy";
+
+}
+
+else if(r.score>=70){
+
+color="watch";
+
+}
+
+
+
+output.innerHTML +=
+
+`
+<div class="result">
+
+<b>${r.stock}</b><br>
+
+Score:
+<b>${r.score}/100</b>
+
+<br>
+
+<span class="${color}">
+${r.signal}
+</span>
+
+<br><br>
+
+Kurs:
+${r.price.toFixed(2)}
+
+<br>
+
+RSI:
+${r.rsi.toFixed(1)}
+
+<br>
+
+MA50:
+${r.ma50.toFixed(2)}
+
+<br>
+
+MA200:
+${r.ma200.toFixed(2)}
+
+</div>
+
+`;
+
+});
+
+
+}
+
+
+
+
+
+// ===============================
+// SWING SCORE
+// ===============================
+
+
+function calculateScore(data,index6m){
+
+
+let score=0;
+
+
+let text=[];
+
+
+let price=data.price;
+
+
+// Trend
+
+
+if(price>data.ma200){
+
+score+=25;
+
+}
+
+
+if(data.ma200>data.ma50){
+
+score+=5;
+
+}
+
+
+
+// RSI
+
+
+if(data.rsi<35){
+
+score+=15;
+
+}
+
+else if(data.rsi<45){
+
+score+=8;
+
+}
+
+
+
+// Relativ styrka
+
+
+let relative =
+data.sixMonth-index6m;
+
+
+if(relative>=10){
+
+score+=25;
+
+}
+
+else if(relative>=5){
+
+score+=15;
+
+}
+
+else if(relative>=0){
+
+score+=8;
+
+}
+
+
+
+// Rekyl/momentum
+
+
+if(price>data.ma50){
+
+score+=10;
+
+}
+
+
+// Riskkontroll
+
+
+if(score>100){
+
+score=100;
+
+}
+
+
+
+let signal;
+
+
+if(score>=85){
+
+signal="🟢 KÖP";
+
+}
+
+else if(score>=70){
+
+signal="🟡 BEVAKA";
+
+}
+
+else{
+
+signal="🔴 AVVAKTA";
+
+}
+
+
+
+return {
+
+score,
+signal
+
+};
+
+
+}
+
+</script>
