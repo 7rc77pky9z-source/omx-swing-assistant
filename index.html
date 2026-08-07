@@ -148,15 +148,29 @@ const stocks = [
 
 async function getStockData(ticker){
 
-
 let url =
 "https://query1.finance.yahoo.com/v8/finance/chart/"
 +ticker+
 "?range=1y&interval=1d";
 
 
+let controller = new AbortController();
+
+let timeout = setTimeout(() => {
+controller.abort();
+},8000);
+
+
+try {
+
+
 let response =
-await fetch(url);
+await fetch(url,{
+signal:controller.signal
+});
+
+
+clearTimeout(timeout);
 
 
 let json =
@@ -209,6 +223,15 @@ sixMonth
 
 };
 
+
+}
+catch(error){
+
+throw new Error(
+ticker+" misslyckades"
+);
+
+}
 
 }
 
@@ -350,19 +373,19 @@ await getIndexData();
 let results=[];
 
 
-for(let stock of stocks){
+let completed=0;
+
+
+
+let promises =
+stocks.map(async(stock)=>{
 
 
 try{
 
 
-status.innerHTML =
-"Analyserar "+stock+"...";
-
-
 let data =
 await getStockData(stock);
-
 
 
 let score =
@@ -372,16 +395,121 @@ index6m
 );
 
 
-
 results.push({
 
-stock:stock,
+stock,
 score:score.score,
 signal:score.signal,
 price:data.price,
 rsi:data.rsi,
 ma50:data.ma50,
 ma200:data.ma200
+
+});
+
+
+}
+
+catch(error){
+
+console.log(error.message);
+
+}
+
+
+
+completed++;
+
+
+status.innerHTML =
+"Analyserar "
++completed+
+"/"+
+stocks.length;
+
+
+});
+
+
+
+await Promise.all(promises);
+
+
+
+results.sort(
+(a,b)=>b.score-a.score
+);
+
+
+
+status.innerHTML =
+"Klart - "+
+results.length+
+" aktier analyserade";
+
+
+
+output.innerHTML="";
+
+
+results.forEach(r=>{
+
+
+let color="wait";
+
+
+if(r.score>=85){
+
+color="buy";
+
+}
+
+else if(r.score>=70){
+
+color="watch";
+
+}
+
+
+output.innerHTML +=
+
+`
+<div class="result">
+
+<b>${r.stock}</b><br>
+
+Score:
+<b>${r.score}/100</b>
+
+<br>
+
+<span class="${color}">
+${r.signal}
+</span>
+
+<br><br>
+
+Kurs:
+${r.price.toFixed(2)}
+
+<br>
+
+RSI:
+${r.rsi.toFixed(1)}
+
+<br>
+
+MA50:
+${r.ma50.toFixed(2)}
+
+<br>
+
+MA200:
+${r.ma200.toFixed(2)}
+
+</div>
+
+`;
 
 });
 
