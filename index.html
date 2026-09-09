@@ -1059,14 +1059,31 @@ async function run(){
       "data/stocks.json?ts=" +
       Date.now();
 
+let controller = new AbortController();
 
-    let r=
-      await fetch(
-        url,
-        {
-          cache:"no-store"
-        }
-      );
+let timeout = setTimeout(
+  () => controller.abort(),
+  10000
+);
+
+let r;
+
+try{
+
+  r = await fetch(
+    url,
+    {
+      cache:"no-store",
+      signal:controller.signal
+    }
+  );
+
+}
+finally{
+
+  clearTimeout(timeout);
+
+}
 
 
     if(!r.ok){
