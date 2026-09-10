@@ -1,8 +1,407 @@
-<!doctype html><html lang="sv"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>OMX Swing Scanner v1.2</title><style>body{font-family:Arial;margin:15px;background:#f5f5f7}main{max-width:850px;margin:auto}.row{display:grid;grid-template-columns:1fr 80px 60px 80px;padding:13px 8px;background:white;border-bottom:1px solid #ddd;cursor:pointer}.h{background:#ddd;cursor:default}.buy{background:#d8f3dc}.watch{background:#fff0bd}.wait{background:#f3dddd}.score,.sig{text-align:center;font-weight:bold;border-radius:7px}.details{background:white;border-radius:12px;padding:15px;margin-top:12px}.box{display:inline-block;background:#f5f5f7;padding:10px;margin:4px;border-radius:9px}button{padding:10px 15px;border:0;border-radius:9px;background:#111;color:white}</style><main><h1>OMX Swing Scanner</h1><p>v1.2 – klicka på en aktie för fördjupning</p><button onclick="scan()">Uppdatera</button><p id="status">Laddar...</p><div class="row h"><b>Aktie</b><b>Pris</b><b>Score</b><b>Signal</b></div><div id="out"></div><div id="details" class="details" style="display:none"></div></main><script>
-const T=["ABB.ST","ALFA.ST","ASSA-B.ST","ATCO-A.ST","AZN.ST","BOL.ST","ELUX-B.ST","ERIC-B.ST","EVO.ST","HEXA-B.ST","HM-B.ST","INVE-B.ST","KINV-B.ST","NDA-SE.ST","SAND.ST","SCA-B.ST","SEB-A.ST","SHB-A.ST","SINCH.ST","SKF-B.ST","SWED-A.ST","TEL2-B.ST","TELIA.ST","VOLV-B.ST"];const avg=(a,n)=>a.length<n?null:a.slice(-n).reduce((x,y)=>x+y,0)/n;
-function rsi(a){let g=0,l=0,n=14;for(let i=a.length-n;i<a.length;i++){let d=a[i]-a[i-1];d>0?g+=d:l-=d}return l?100-100/(1+g/l):100}
-function A(p,b){let x=p.at(-1),m=avg(p,50),M=avg(p,200),r=rsi(p),t=(x>M?25:0)+(m>M?10:0),rp=r<35?15:r<45?8:0,rel=(x/p.at(-127)-1)-(b.at(-1)/b.at(-127)-1),rr=rel>=.1?25:rel>=.05?15:rel>=0?8:0,mo=x>m?10:0;return{price:x,ma50:m,ma200:M,rsi:r,trend:t,rp,rel,rr,mom:mo,score:Math.min(100,t+rp+rr+mo)}}
-const S=x=>x>=85?"KÖP":x>=70?"BEVAKA":"AVVAKTA",C=x=>x=="KÖP"?"buy":x=="BEVAKA"?"watch":"wait";
-function show(t,a){let d=document.getElementById("details");d.style.display="block";d.innerHTML=`<h2>${t.replace(".ST","")} – ${S(a.score)}</h2><b>Score ${a.score}/100</b><div><span class=box>Pris<br><b>${a.price.toFixed(2)}</b></span><span class=box>RSI<br><b>${a.rsi.toFixed(1)}</b></span><span class=box>MA50<br><b>${a.ma50.toFixed(2)}</b></span><span class=box>MA200<br><b>${a.ma200.toFixed(2)}</b></span><span class=box>Relativ styrka<br><b>${(a.rel*100).toFixed(1)}%</b></span></div><h3>Scorefördelning</h3><p>Trend: ${a.trend}/35<br>RSI: ${a.rp}/15<br>Relativ styrka: ${a.rr}/25<br>Momentum: ${a.mom}/10</p><button onclick="this.parentElement.style.display='none'">Stäng</button>`;d.scrollIntoView({behavior:"smooth"})}
-async function scan(){let st=document.getElementById("status"),o=document.getElementById("out");o.innerHTML="";try{let r=await fetch("data/stocks.json?x="+Date.now(),{cache:"no-store"});let j=await r.json(),s=j.stocks,b=(s["^OMXS30"]||[]).map(x=>x.close),a=[];for(let t of T)if(s[t]?.length>=200)a.push({t,a:A(s[t].map(x=>x.close),b)});a.sort((x,y)=>y.a.score-x.a.score);a.forEach(x=>{let q=S(x.a.score),e=document.createElement("div");e.className="row";e.onclick=()=>show(x.t,x.a);e.innerHTML=`<b>${x.t.replace(".ST","")}</b><span>${x.a.price.toFixed(2)}</span><span class="score ${C(q)}">${x.a.score}</span><span class="sig ${C(q)}">${q}</span>`;o.appendChild(e)});st.textContent=`Klart – ${a.length} aktier analyserade · sorterade efter Score`}catch(e){st.textContent="Fel: "+e.message}}scan();
-</script></main></html>
+<!doctype html>
+<html lang="sv">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>OMX Swing Scanner v1.3</title>
+
+<style>
+body{font-family:Arial;margin:15px;background:#f5f5f7}
+main{max-width:850px;margin:auto}
+.row{display:grid;grid-template-columns:1fr 80px 60px 80px;padding:13px 8px;background:white;border-bottom:1px solid #ddd;cursor:pointer}
+.h{background:#ddd;cursor:default}
+.buy{background:#d8f3dc}
+.watch{background:#fff0bd}
+.wait{background:#f3dddd}
+.score,.sig{text-align:center;font-weight:bold;border-radius:7px}
+.details{background:white;border-radius:12px;padding:15px;margin-top:12px}
+.box{display:inline-block;background:#f5f5f7;padding:10px;margin:4px;border-radius:9px}
+button{padding:10px 15px;border:0;border-radius:9px;background:#111;color:white}
+</style>
+
+<main>
+
+<h1>OMX Swing Scanner</h1>
+<p>v1.3 – klicka på en aktie för fördjupning</p>
+
+<button onclick="scan()">Uppdatera</button>
+
+<p id="status">Laddar...</p>
+
+<div class="row h">
+<b>Aktie</b>
+<b>Pris</b>
+<b>Score</b>
+<b>Signal</b>
+</div>
+
+<div id="out"></div>
+
+<div id="details" class="details" style="display:none"></div>
+
+</main>
+
+<script>
+
+const T=[
+"ABB.ST",
+"ALFA.ST",
+"ASSA-B.ST",
+"ATCO-A.ST",
+"AZN.ST",
+"BOL.ST",
+"ELUX-B.ST",
+"ERIC-B.ST",
+"EVO.ST",
+"HEXA-B.ST",
+"HM-B.ST",
+"INVE-B.ST",
+"KINV-B.ST",
+"NDA-SE.ST",
+"SAND.ST",
+"SCA-B.ST",
+"SEB-A.ST",
+"SHB-A.ST",
+"SINCH.ST",
+"SKF-B.ST",
+"SWED-A.ST",
+"TEL2-B.ST",
+"TELIA.ST",
+"VOLV-B.ST"
+];
+
+const avg=(a,n)=>
+  a.length<n
+  ?null
+  :a.slice(-n).reduce((x,y)=>x+y,0)/n;
+
+
+function rsi(a){
+
+  let g=0,
+      l=0,
+      n=14;
+
+  for(let i=a.length-n;i<a.length;i++){
+
+    let d=a[i]-a[i-1];
+
+    d>0
+      ?g+=d
+      :l-=d;
+  }
+
+  return l
+    ?100-100/(1+g/l)
+    :100;
+}
+
+
+/* Ny parameter:
+   Rekyl från högsta kursen under de senaste 20 handelsdagarna.
+*/
+function pullback(a,n=20){
+
+  if(a.length<n)
+    return null;
+
+  let h=Math.max(...a.slice(-n));
+
+  return (1-a.at(-1)/h)*100;
+}
+
+
+function A(p,b){
+
+  let x=p.at(-1);
+
+  let m=avg(p,50);
+
+  let M=avg(p,200);
+
+  let r=rsi(p);
+
+
+  /* Trend 35 poäng */
+  let t=
+    (x>M?25:0)+
+    (m>M?10:0);
+
+
+  /* RSI 15 poäng */
+  let rp=
+    r<35
+      ?15
+      :r<45
+        ?8
+        :0;
+
+
+  /* Relativ styrka 25 poäng */
+  let rel=
+    (x/p.at(-127)-1)-
+    (b.at(-1)/b.at(-127)-1);
+
+  let rr=
+    rel>=.1
+      ?25
+      :rel>=.05
+        ?15
+        :rel>=0
+          ?8
+          :0;
+
+
+  /* Momentum 10 poäng */
+  let mo=
+    x>m
+      ?10
+      :0;
+
+
+  /* NYTT:
+     Rekyl från 20-dagars högsta
+  */
+  let pb=pullback(p);
+
+  let pp=
+    pb>=5 && pb<=15
+      ?10
+      :pb>=3
+        ?6
+        :0;
+
+
+  /* Max 95 poäng */
+  let score=Math.min(
+    100,
+    t+rp+rr+mo+pp
+  );
+
+
+  return{
+    price:x,
+    ma50:m,
+    ma200:M,
+    rsi:r,
+
+    trend:t,
+    rp,
+
+    rel,
+    rr,
+
+    mom:mo,
+
+    pullback:pb,
+    pp,
+
+    score
+  };
+}
+
+
+const S=x=>
+  x>=85
+    ?"KÖP"
+    :x>=70
+      ?"BEVAKA"
+      :"AVVAKTA";
+
+
+const C=x=>
+  x=="KÖP"
+    ?"buy"
+    :x=="BEVAKA"
+      ?"watch"
+      :"wait";
+
+
+function show(t,a){
+
+  let d=document.getElementById("details");
+
+  d.style.display="block";
+
+  d.innerHTML=`
+
+    <h2>${t.replace(".ST","")} – ${S(a.score)}</h2>
+
+    <b>Score ${a.score}/95</b>
+
+    <div>
+
+      <span class=box>
+        Pris<br>
+        <b>${a.price.toFixed(2)}</b>
+      </span>
+
+      <span class=box>
+        RSI<br>
+        <b>${a.rsi.toFixed(1)}</b>
+      </span>
+
+      <span class=box>
+        MA50<br>
+        <b>${a.ma50.toFixed(2)}</b>
+      </span>
+
+      <span class=box>
+        MA200<br>
+        <b>${a.ma200.toFixed(2)}</b>
+      </span>
+
+      <span class=box>
+        Relativ styrka<br>
+        <b>${(a.rel*100).toFixed(1)}%</b>
+      </span>
+
+      <span class=box>
+        20d rekyl<br>
+        <b>${a.pullback.toFixed(1)}%</b>
+      </span>
+
+    </div>
+
+    <h3>Scorefördelning</h3>
+
+    <p>
+
+      Trend: ${a.trend}/35<br>
+
+      RSI: ${a.rp}/15<br>
+
+      Relativ styrka: ${a.rr}/25<br>
+
+      Momentum: ${a.mom}/10<br>
+
+      Rekyl: ${a.pp}/10
+
+    </p>
+
+    <button onclick="this.parentElement.style.display='none'">
+      Stäng
+    </button>
+
+  `;
+
+  d.scrollIntoView({
+    behavior:"smooth"
+  });
+}
+
+
+async function scan(){
+
+  let st=document.getElementById("status");
+
+  let o=document.getElementById("out");
+
+  o.innerHTML="";
+
+
+  try{
+
+    let r=await fetch(
+      "data/stocks.json?x="+Date.now(),
+      {
+        cache:"no-store"
+      }
+    );
+
+
+    let j=await r.json();
+
+    let s=j.stocks;
+
+
+    /*
+      OMXS30 hämtas numera av fetch_data.py
+      från Yahoo-symbolen ^OMX men sparas som
+      ^OMXS30 i stocks.json.
+    */
+    let b=
+      (s["^OMXS30"]||[])
+      .map(x=>x.close);
+
+
+    let a=[];
+
+
+    for(let t of T){
+
+      if(s[t]?.length>=200){
+
+        a.push({
+          t,
+          a:A(
+            s[t].map(x=>x.close),
+            b
+          )
+        });
+
+      }
+
+    }
+
+
+    a.sort(
+      (x,y)=>
+        y.a.score-x.a.score
+    );
+
+
+    a.forEach(x=>{
+
+      let q=S(x.a.score);
+
+      let e=document.createElement("div");
+
+      e.className="row";
+
+      e.onclick=()=>
+        show(x.t,x.a);
+
+
+      e.innerHTML=`
+
+        <b>${x.t.replace(".ST","")}</b>
+
+        <span>
+          ${x.a.price.toFixed(2)}
+        </span>
+
+        <span class="score ${C(q)}">
+          ${x.a.score}
+        </span>
+
+        <span class="sig ${C(q)}">
+          ${q}
+        </span>
+
+      `;
+
+      o.appendChild(e);
+
+    });
+
+
+    st.textContent=
+      `Klart – ${a.length} aktier analyserade · sorterade efter Score`;
+
+
+  }catch(e){
+
+    st.textContent=
+      "Fel: "+e.message;
+
+  }
+
+}
+
+
+scan();
+
+</script>
+
+</html>
