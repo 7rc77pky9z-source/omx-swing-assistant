@@ -9,7 +9,8 @@ result={"generated_at_utc":datetime.now(timezone.utc).isoformat(),"source":"Yaho
 for ticker in TICKERS:
     print("Hämtar",ticker)
     try:
-        df=yf.download(ticker,period="1y",interval="1d",auto_adjust=False,progress=False,threads=False)
+        yahoo_ticker = "^OMX" if ticker == "^OMXS30" else ticker
+        df=yf.download(yahoo_ticker,period="1y",interval="1d",auto_adjust=False,progress=False,threads=False)
         if df.empty: print("  INGEN DATA"); continue
         close=df["Close"]
         if hasattr(close,"columns"): close=close.iloc[:,0]
