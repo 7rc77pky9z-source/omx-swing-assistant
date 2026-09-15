@@ -25,13 +25,16 @@ jobs:
       - name: Hämta 5 års historik
         run: python backtest.py
 
-      - name: Spara backtest-data
+      - name: Kör backtest
+        run: python run_backtest.py
+
+      - name: Spara resultat
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git add data/backtest_data.json
+          git add data/backtest_data.json data/backtest_results.json
 
-          git commit -m "Update backtest data" || echo "No changes"
+          git commit -m "Update backtest results" || echo "No changes"
 
           git push
