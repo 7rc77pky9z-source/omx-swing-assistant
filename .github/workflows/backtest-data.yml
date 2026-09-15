@@ -1,1 +1,34 @@
+name: Samla backtest-data
 
+on:
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Hämta repo
+        uses: actions/checkout@v4
+
+      - name: Installera Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Installera paket
+        run: pip install yfinance pandas
+
+      - name: Hämta 5 års historik
+        run: python backtest.py
+
+      - name: Spara backtest-data
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add data/backtest_data.json
+
+          git commit -m "Update backtest data" || echo "No changes"
+
+          git push
