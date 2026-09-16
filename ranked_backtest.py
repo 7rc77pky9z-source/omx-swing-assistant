@@ -218,6 +218,9 @@ data = {}
 
 for ticker, values in raw_data.items():
 
+    if ticker == "generated_at_utc":
+        continue
+
     print("TICKER:", ticker)
     print("TYPE:", type(values))
     print("FIRST:", values[0] if isinstance(values, list) and len(values) > 0 else values)
