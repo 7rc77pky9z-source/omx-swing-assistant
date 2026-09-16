@@ -28,13 +28,13 @@ jobs:
       - name: Kör backtest
         run: python run_backtest.py
 
-      - name: Kör ranked backtest
+      - name: Kör final backtest
         run: python ranked_backtest.py
 
       - name: Spara resultat
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add data/backtest_data.json data/backtest_results.json data/ranked_backtest_results.json
+          git add data/backtest_data.json data/backtest_results.json data/ranked_backtest_results.json data/final_backtest_results.json
           git commit -m "Update backtest results" || echo "No changes"
           git push
