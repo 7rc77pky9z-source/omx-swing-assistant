@@ -1,117 +1,44 @@
 import json
-import math
 from pathlib import Path
-
 import pandas as pd
 
 
-DATA_FILE = Path("data/backtest_data.json")
-OUTPUT_FILE = Path("data/ranked_backtest_results.json")
+# ============================================================
+# OMX SWING SCANNER V1.3
+# FINAL BACKTEST
+#
+# Modell: V1.3 - oförändrad
+# Max 2 samtidiga positioner
+# Entry: nästa handelsdags öppning
+# Stop: -8 %
+# Target: +10 % / +15 %
+# Max innehav: 20 handelsdagar
+#
+# Ingen courtage eller slippage
+# ============================================================
 
-STOP_LOSS = 0.08
-TARGETS = [0.10, 0.15]
+
+DATA_FILE = Path("data/backtest_data.json")
+OUTPUT_FILE = Path("data/final_backtest_results.json")
+
+START_CAPITAL = 100_000.0
+MAX_POSITIONS = 2
+
+STOP_LOSS_PCT = 8.0
 MAX_HOLD_DAYS = 20
 
-MIN_SCORE = 70
-
-# Exakt samma tickers som i nuvarande scanner
-TICKERS = [
-    "ABB.ST",
-    "ALFA.ST",
-    "ASSA-B.ST",
-    "ATCO-A.ST",
-    "AZN.ST",
-    "BOL.ST",
-    "ELUX-B.ST",
-    "ERIC-B.ST",
-    "EVO.ST",
-    "HEXA-B.ST",
-    "HM-B.ST",
-    "INVE-B.ST",
-    "KINV-B.ST",
-    "NDA-SE.ST",
-    "SAND.ST",
-    "SCA-B.ST",
-    "SEB-A.ST",
-    "SHB-A.ST",
-    "SINCH.ST",
-    "SKF-B.ST",
-    "SWED-A.ST",
-    "TEL2-B.ST",
-    "TELIA.ST",
-    "VOLV-B.ST",
-]
-
-BENCHMARK = "^OMXS30"
+TARGETS = {
+    "target_10": 10.0,
+    "target_15": 15.0,
+}
 
 
-def clean_number(value):
-    try:
-        value = float(value)
-        if math.isnan(value) or math.isinf(value):
-            return None
-        return value
-    except Exception:
-        return None
+# ------------------------------------------------------------
+# V1.3 MODEL
+# ------------------------------------------------------------
 
-
-def prepare_dataframe(raw):
-    df = pd.DataFrame(raw)
-
-    if df.empty:
-        return df
-
-    # Försök hitta datumkolumn
-    date_column = None
-
-    for col in ["Date", "date", "Datetime", "datetime"]:
-        if col in df.columns:
-            date_column = col
-            break
-
-    if date_column is None:
-        # Om datum ligger som indexliknande fält
-        if "index" in df.columns:
-            date_column = "index"
-        else:
-            raise ValueError("Hittar ingen datumkolumn.")
-
-    df["Date"] = pd.to_datetime(df[date_column])
-    df = df.sort_values("Date").reset_index(drop=True)
-
-    # Normalisera kolumnnamn
-    rename = {}
-
-    for col in df.columns:
-        low = str(col).lower()
-
-        if low == "open":
-            rename[col] = "Open"
-        elif low == "high":
-            rename[col] = "High"
-        elif low == "low":
-            rename[col] = "Low"
-        elif low == "close":
-            rename[col] = "Close"
-
-    df = df.rename(columns=rename)
-
-    required = ["Open", "High", "Low", "Close"]
-
-    for col in required:
-        if col not in df.columns:
-            raise ValueError(f"Saknar kolumnen {col}.")
-
-    for col in required:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    df = df.dropna(subset=["Open", "High", "Low", "Close"])
-
-    return df
-
-
-def calculate_rsi(close, period=14):
-    delta = close.diff()
+def calculate_rsi(series, period=14):
+    delta = series.diff()
 
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -120,725 +47,970 @@ def calculate_rsi(close, period=14):
     avg_loss = loss.rolling(period).mean()
 
     rs = avg_gain / avg_loss
-
     rsi = 100 - (100 / (1 + rs))
 
     return rsi
 
 
-def calculate_score(stock_df, benchmark_df, index):
-    """
-    Exakt v1.3-logik:
+def calculate_score(df, benchmark):
 
-    Trend 35
-      price > MA200 = +25
-      MA50 > MA200 = +10
-
-    RSI 15
-      RSI < 35 = +15
-      RSI < 45 = +8
-
-    Relative strength 25
-      >= +10% = +25
-      >= +5%  = +15
-      >= 0%   = +8
-
-    Momentum 10
-      price > MA50 = +10
-
-    Pullback 10
-      5-15% = +10
-      >=3%  = +6
-
-    Max 95
-    """
-
-    if index < 200:
+    if len(df) < 200:
         return None
 
-    row = stock_df.iloc[index]
+    close = df["Close"]
 
-    close = row["Close"]
+    price = close.iloc[-1]
 
-    if pd.isna(close):
-        return None
+    ma50 = close.rolling(50).mean().iloc[-1]
+    ma200 = close.rolling(200).mean().iloc[-1]
 
-    ma50 = stock_df["Close"].rolling(50).mean().iloc[index]
-    ma200 = stock_df["Close"].rolling(200).mean().iloc[index]
+    rsi_series = calculate_rsi(close)
+    rsi = rsi_series.iloc[-1]
 
-    rsi_series = calculate_rsi(stock_df["Close"])
-    rsi = rsi_series.iloc[index]
+    # --------------------------------------------------------
+    # Trend: 35 points
+    # --------------------------------------------------------
 
-    if pd.isna(ma50) or pd.isna(ma200) or pd.isna(rsi):
-        return None
+    trend_score = 0
 
-    score = 0
-
-    # -------------------------
-    # Trend 35
-    # -------------------------
-
-    if close > ma200:
-        score += 25
+    if price > ma200:
+        trend_score += 25
 
     if ma50 > ma200:
-        score += 10
+        trend_score += 10
 
-    # -------------------------
-    # RSI 15
-    # -------------------------
+    # --------------------------------------------------------
+    # RSI: 15 points
+    # --------------------------------------------------------
+
+    rsi_score = 0
 
     if rsi < 35:
-        score += 15
+        rsi_score = 15
     elif rsi < 45:
-        score += 8
+        rsi_score = 8
 
-    # -------------------------
-    # Relative strength 25
-    # -------------------------
+    # --------------------------------------------------------
+    # Relative strength: 25 points
+    # --------------------------------------------------------
 
-    rs_score = 0
-    relative_strength = None
+    relative_strength_score = 0
 
-    stock_date = stock_df.iloc[index]["Date"]
+    try:
+        current_stock = close.iloc[-1]
 
-    # Cirka 6 månader / 127 handelsdagar
-    lookback = 127
+        lookback = min(127, len(df) - 1)
 
-    if index >= lookback:
-        old_stock = stock_df["Close"].iloc[index - lookback]
+        old_stock = close.iloc[-1 - lookback]
 
-        # Hitta benchmark på samma datum
-        benchmark_matches = benchmark_df[
-            benchmark_df["Date"] <= stock_date
-        ]
+        # Match benchmark by date
+        current_date = df.index[-1]
 
-        if not benchmark_matches.empty:
-            benchmark_index = benchmark_matches.index[-1]
+        benchmark_close = benchmark["Close"]
 
-            # Hitta benchmarkvärdet cirka 127 handelsdagar bakåt
-            benchmark_position = benchmark_df.index.get_loc(
-                benchmark_index
-            )
+        if current_date in benchmark_close.index:
 
-            if benchmark_position >= lookback:
-                old_benchmark = benchmark_df["Close"].iloc[
-                    benchmark_position - lookback
-                ]
+            benchmark_current = benchmark_close.loc[current_date]
 
-                current_benchmark = benchmark_df["Close"].iloc[
-                    benchmark_position
-                ]
+            old_date = df.index[-1 - lookback]
 
-                if (
-                    old_stock
-                    and old_benchmark
-                    and old_stock > 0
-                    and old_benchmark > 0
-                ):
-                    stock_return = close / old_stock - 1
-                    benchmark_return = (
-                        current_benchmark / old_benchmark - 1
-                    )
+            if old_date in benchmark_close.index:
 
-                    relative_strength = (
-                        stock_return - benchmark_return
-                    ) * 100
+                benchmark_old = benchmark_close.loc[old_date]
 
-                    if relative_strength >= 10:
-                        rs_score = 25
-                    elif relative_strength >= 5:
-                        rs_score = 15
-                    elif relative_strength >= 0:
-                        rs_score = 8
+                stock_return = (
+                    current_stock / old_stock - 1
+                ) * 100
 
-    score += rs_score
+                benchmark_return = (
+                    benchmark_current / benchmark_old - 1
+                ) * 100
 
-    # -------------------------
-    # Momentum 10
-    # -------------------------
+                relative_strength = (
+                    stock_return - benchmark_return
+                )
 
-    if close > ma50:
-        score += 10
+                if relative_strength >= 10:
+                    relative_strength_score = 25
+                elif relative_strength >= 5:
+                    relative_strength_score = 15
+                elif relative_strength >= 0:
+                    relative_strength_score = 8
 
-    # -------------------------
-    # Pullback 10
-    # -------------------------
+            else:
+                relative_strength = None
 
-    high_20 = stock_df["Close"].rolling(20).max().iloc[index]
+        else:
+            relative_strength = None
 
-    pullback = 0
+    except Exception:
+        relative_strength = None
 
-    if high_20 and high_20 > 0:
-        pullback = (high_20 - close) / high_20 * 100
+    # --------------------------------------------------------
+    # Momentum: 10 points
+    # --------------------------------------------------------
 
-    # Viktigt:
-    # Detta är samma logik som v1.3,
-    # inklusive att >15% också får +6.
+    momentum_score = 0
+
+    if price > ma50:
+        momentum_score = 10
+
+    # --------------------------------------------------------
+    # Volatility / Pullback: V1.3 pullback component
+    # --------------------------------------------------------
+
+    pullback_score = 0
+
+    high_20 = close.tail(20).max()
+
+    pullback = (
+        (high_20 - price) / high_20
+    ) * 100
+
+    # EXACT V1.3 LOGIC
     if pullback >= 5 and pullback <= 15:
-        score += 10
+        pullback_score = 10
     elif pullback >= 3:
-        score += 6
+        pullback_score = 6
+
+    # --------------------------------------------------------
+    # Total
+    # --------------------------------------------------------
+
+    total_score = (
+        trend_score
+        + rsi_score
+        + relative_strength_score
+        + momentum_score
+        + pullback_score
+    )
+
+    if total_score >= 85:
+        signal = "KÖP"
+    elif total_score >= 70:
+        signal = "BEVAKA"
+    else:
+        signal = "AVVAKTA"
 
     return {
-        "score": score,
+        "score": total_score,
+        "signal": signal,
+        "price": price,
+        "ma50": ma50,
+        "ma200": ma200,
         "rsi": rsi,
         "relative_strength": relative_strength,
         "pullback": pullback,
-        "ma50": ma50,
-        "ma200": ma200,
     }
 
 
-def simulate_trade(stock_df, signal_index, target):
-    """
-    Signal vid dagens stängning.
-    Köp nästa handelsdags öppning.
+# ------------------------------------------------------------
+# LOAD DATA
+# ------------------------------------------------------------
 
-    Stop:
-      -8 %
+print("Läser backtest-data...")
 
-    Target:
-      +10 eller +15 %
+with open(DATA_FILE, "r", encoding="utf-8") as f:
+    raw_data = json.load(f)
 
-    Max holding:
-      20 handelsdagar
 
-    Om både stop och target träffas samma dag:
-      STOP först (konservativt).
-    """
+data = {}
 
-    entry_index = signal_index + 1
+for ticker, values in raw_data.items():
 
-    if entry_index >= len(stock_df):
-        return None
+    df = pd.DataFrame(values)
 
-    entry_price = stock_df.iloc[entry_index]["Open"]
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.set_index("Date")
 
-    if pd.isna(entry_price) or entry_price <= 0:
-        return None
+    df = df.sort_index()
 
-    stop_price = entry_price * (1 - STOP_LOSS)
-    target_price = entry_price * (1 + target)
+    for column in ["Open", "High", "Low", "Close"]:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce"
+        )
 
-    last_index = min(
-        entry_index + MAX_HOLD_DAYS,
-        len(stock_df) - 1,
+    df = df.dropna(
+        subset=["Open", "High", "Low", "Close"]
     )
 
-    for i in range(entry_index, last_index + 1):
-
-        row = stock_df.iloc[i]
-
-        low = row["Low"]
-        high = row["High"]
-
-        # Stop först om båda nås samma dag
-        if low <= stop_price:
-            result = -STOP_LOSS * 100
-
-            return {
-                "entry_index": entry_index,
-                "exit_index": i,
-                "entry_price": entry_price,
-                "exit_price": stop_price,
-                "return_pct": result,
-                "exit_reason": "STOP",
-                "holding_days": i - entry_index + 1,
-            }
-
-        if high >= target_price:
-            result = target * 100
-
-            return {
-                "entry_index": entry_index,
-                "exit_index": i,
-                "entry_price": entry_price,
-                "exit_price": target_price,
-                "return_pct": result,
-                "exit_reason": "TARGET",
-                "holding_days": i - entry_index + 1,
-            }
-
-    # Om varken stop eller target nås:
-    # stäng på close efter max 20 dagar
-    exit_price = stock_df.iloc[last_index]["Close"]
-
-    result = (exit_price / entry_price - 1) * 100
-
-    return {
-        "entry_index": entry_index,
-        "exit_index": last_index,
-        "entry_price": entry_price,
-        "exit_price": exit_price,
-        "return_pct": result,
-        "exit_reason": "MAX_HOLD",
-        "holding_days": last_index - entry_index + 1,
-    }
+    data[ticker] = df
 
 
-def load_data():
-    print(f"Läser {DATA_FILE}...")
+benchmark = data["^OMXS30"]
 
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-
-    return raw
-
-
-def normalize_data(raw):
-    """
-    Hanterar den normala strukturen:
-
-    {
-      "ABB.ST": [...],
-      "VOLV-B.ST": [...],
-      "^OMXS30": [...]
-    }
-
-    samt om data ligger under exempelvis:
-    {
-      "stocks": {...}
-    }
-    """
-
-    if isinstance(raw, dict):
-
-        if "stocks" in raw and isinstance(raw["stocks"], dict):
-            raw = raw["stocks"]
-
-        elif "data" in raw and isinstance(raw["data"], dict):
-            raw = raw["data"]
-
-    if not isinstance(raw, dict):
-        raise ValueError("Okänd struktur i backtest_data.json.")
-
-    result = {}
-
-    for ticker in TICKERS + [BENCHMARK]:
-
-        if ticker not in raw:
-            print(f"VARNING: {ticker} saknas i data.")
-            continue
-
-        try:
-            result[ticker] = prepare_dataframe(raw[ticker])
-        except Exception as e:
-            print(f"Fel vid läsning av {ticker}: {e}")
-
-    return result
+tickers = [
+    ticker
+    for ticker in data
+    if ticker != "^OMXS30"
+]
 
 
-def build_daily_candidates(data):
-    benchmark_df = data.get(BENCHMARK)
+# ------------------------------------------------------------
+# COMMON TRADING DATES
+# ------------------------------------------------------------
 
-    if benchmark_df is None or benchmark_df.empty:
-        raise ValueError("Benchmark ^OMXS30 saknas.")
+all_dates = set()
 
-    candidates_by_date = {}
+for ticker in tickers:
 
-    for ticker in TICKERS:
+    all_dates.update(
+        data[ticker].index
+    )
 
-        stock_df = data.get(ticker)
+dates = sorted(all_dates)
 
-        if stock_df is None or stock_df.empty:
-            continue
 
-        for index in range(len(stock_df)):
+# ------------------------------------------------------------
+# BACKTEST FUNCTION
+# ------------------------------------------------------------
 
-            date = stock_df.iloc[index]["Date"]
+def run_backtest(target_pct):
 
-            score_data = calculate_score(
-                stock_df,
-                benchmark_df,
-                index,
+    print()
+    print("=" * 60)
+    print(
+        f"STARTAR TEST: target +{target_pct:.0f}%"
+    )
+    print("=" * 60)
+
+    capital = START_CAPITAL
+
+    equity_curve = []
+
+    open_positions = {}
+
+    trades = []
+
+    skipped_signals = []
+
+    previous_equity = capital
+
+    # --------------------------------------------------------
+    # MAIN LOOP
+    # --------------------------------------------------------
+
+    for date_index, date in enumerate(dates):
+
+        # ----------------------------------------------------
+        # 1. EXIT EXISTING POSITIONS
+        # ----------------------------------------------------
+
+        positions_to_remove = []
+
+        for ticker, position in list(
+            open_positions.items()
+        ):
+
+            df = data[ticker]
+
+            if date not in df.index:
+                continue
+
+            current_index = df.index.get_loc(date)
+
+            entry_index = position["entry_index"]
+
+            holding_days = (
+                current_index - entry_index + 1
             )
 
-            if score_data is None:
+            row = df.iloc[current_index]
+
+            entry_price = position["entry_price"]
+
+            stop_price = (
+                entry_price
+                * (1 - STOP_LOSS_PCT / 100)
+            )
+
+            target_price = (
+                entry_price
+                * (1 + target_pct / 100)
+            )
+
+            exit_price = None
+            exit_reason = None
+
+            # ------------------------------------------------
+            # STOP FIRST
+            # ------------------------------------------------
+
+            if row["Low"] <= stop_price:
+
+                exit_price = stop_price
+                exit_reason = "STOP"
+
+            elif row["High"] >= target_price:
+
+                exit_price = target_price
+                exit_reason = "TARGET"
+
+            # ------------------------------------------------
+            # MAX HOLD
+            # ------------------------------------------------
+
+            elif holding_days >= MAX_HOLD_DAYS:
+
+                exit_price = row["Close"]
+                exit_reason = "MAX_HOLD"
+
+            # ------------------------------------------------
+            # CLOSE POSITION
+            # ------------------------------------------------
+
+            if exit_price is not None:
+
+                result_pct = (
+                    exit_price / entry_price - 1
+                ) * 100
+
+                capital_before = capital
+
+                capital *= (
+                    1 + result_pct / 100
+                )
+
+                trade = {
+                    "ticker": ticker,
+                    "signal_date": position[
+                        "signal_date"
+                    ].strftime("%Y-%m-%d"),
+
+                    "entry_date": position[
+                        "entry_date"
+                    ].strftime("%Y-%m-%d"),
+
+                    "exit_date": date.strftime(
+                        "%Y-%m-%d"
+                    ),
+
+                    "score": position["score"],
+
+                    "signal": position["signal"],
+
+                    "entry_price": entry_price,
+
+                    "exit_price": exit_price,
+
+                    "result_pct": result_pct,
+
+                    "exit_reason": exit_reason,
+
+                    "holding_days": holding_days,
+
+                    "capital_before": capital_before,
+
+                    "capital_after": capital,
+                }
+
+                trades.append(trade)
+
+                positions_to_remove.append(
+                    ticker
+                )
+
+        for ticker in positions_to_remove:
+
+            del open_positions[ticker]
+
+        # ----------------------------------------------------
+        # 2. FIND NEW CANDIDATES
+        # ----------------------------------------------------
+
+        candidates = []
+
+        for ticker in tickers:
+
+            # Already holding this stock
+            if ticker in open_positions:
                 continue
 
-            score = score_data["score"]
+            df = data[ticker]
 
-            if score < MIN_SCORE:
+            if date not in df.index:
                 continue
 
-            candidate = {
+            current_index = df.index.get_loc(date)
+
+            # Need next day for entry
+            if current_index >= len(df) - 1:
+                continue
+
+            historical_df = df.iloc[
+                :current_index + 1
+            ]
+
+            result = calculate_score(
+                historical_df,
+                benchmark
+            )
+
+            if result is None:
+                continue
+
+            if result["signal"] not in [
+                "BEVAKA",
+                "KÖP",
+            ]:
+                continue
+
+            if result["score"] < 70:
+                continue
+
+            candidates.append({
                 "ticker": ticker,
-                "signal_index": index,
-                "date": str(date.date()),
-                **score_data,
-            }
+                **result,
+            })
 
-            candidates_by_date.setdefault(
-                str(date.date()),
-                []
-            ).append(candidate)
+        # ----------------------------------------------------
+        # 3. RANK CANDIDATES
+        # ----------------------------------------------------
 
-    # Rangordning:
-    #
-    # 1. Högst score
-    # 2. Högst relativ styrka
-    # 3. Störst pullback
-    # 4. Ticker som tie-breaker
-    #
-    # Detta gör rankningen helt deterministisk.
-
-    for date in candidates_by_date:
-
-        candidates_by_date[date].sort(
+        candidates.sort(
             key=lambda x: (
                 -x["score"],
-                -(x["relative_strength"]
-                  if x["relative_strength"] is not None
-                  else -999),
+
+                -(
+                    x["relative_strength"]
+                    if x["relative_strength"]
+                    is not None
+                    else -999
+                ),
+
                 -x["pullback"],
+
                 x["ticker"],
             )
         )
 
-    return candidates_by_date
+        # ----------------------------------------------------
+        # 4. OPEN POSITIONS UNTIL MAX 2
+        # ----------------------------------------------------
 
-
-def run_ranked_backtest(
-    candidates_by_date,
-    data,
-    number_of_positions,
-    target,
-):
-    """
-    Varje handelsdag väljs de N högst rankade kandidaterna.
-
-    Viktigt:
-    En aktie kan inte ha en ny position om den redan har
-    en öppen position.
-    """
-
-    all_candidates = []
-
-    for date, candidates in candidates_by_date.items():
-
-        for candidate in candidates:
-            all_candidates.append(candidate)
-
-    all_candidates.sort(
-        key=lambda x: x["date"]
-    )
-
-    open_positions = {}
-    trades = []
-
-    for candidate in all_candidates:
-
-        ticker = candidate["ticker"]
-
-        stock_df = data.get(ticker)
-
-        if stock_df is None:
-            continue
-
-        signal_index = candidate["signal_index"]
-
-        # Rensa avslutade positioner
-        if ticker in open_positions:
-            existing = open_positions[ticker]
-
-            if signal_index > existing["exit_index"]:
-                del open_positions[ticker]
-            else:
-                continue
-
-        # Antal positioner som redan öppnats från samma signal-dag
-        date = candidate["date"]
-
-        same_day_candidates = [
-            x
-            for x in candidates_by_date.get(date, [])
-        ]
-
-        # Top N för just den dagen
-        ranked_today = same_day_candidates[:number_of_positions]
-
-        tickers_today = {
-            x["ticker"]
-            for x in ranked_today
-        }
-
-        if ticker not in tickers_today:
-            continue
-
-        trade = simulate_trade(
-            stock_df,
-            signal_index,
-            target,
+        free_slots = (
+            MAX_POSITIONS
+            - len(open_positions)
         )
 
-        if trade is None:
-            continue
+        selected = candidates[
+            :free_slots
+        ]
 
-        trade_record = {
-            "date": candidate["date"],
+        for candidate in selected:
+
+            ticker = candidate["ticker"]
+
+            df = data[ticker]
+
+            current_index = df.index.get_loc(
+                date
+            )
+
+            entry_index = current_index + 1
+
+            entry_date = df.index[
+                entry_index
+            ]
+
+            entry_price = float(
+                df.iloc[entry_index]["Open"]
+            )
+
+            open_positions[ticker] = {
+
+                "ticker": ticker,
+
+                "signal_date": date,
+
+                "entry_date": entry_date,
+
+                "entry_index": entry_index,
+
+                "entry_price": entry_price,
+
+                "score": candidate["score"],
+
+                "signal": candidate["signal"],
+            }
+
+        # ----------------------------------------------------
+        # 5. EQUITY CURVE
+        # ----------------------------------------------------
+
+        equity_curve.append({
+            "date": date.strftime(
+                "%Y-%m-%d"
+            ),
+            "capital": capital,
+            "open_positions": len(
+                open_positions
+            ),
+        })
+
+    # --------------------------------------------------------
+    # CLOSE REMAINING POSITIONS AT END
+    # --------------------------------------------------------
+    #
+    # These are NOT included in performance.
+    # Same principle as previous tests.
+    # --------------------------------------------------------
+
+    open_at_end = []
+
+    for ticker, position in open_positions.items():
+
+        open_at_end.append({
             "ticker": ticker,
-            "score": candidate["score"],
-            "rsi": candidate["rsi"],
-            "relative_strength": candidate["relative_strength"],
-            "pullback": candidate["pullback"],
-            "target_pct": target * 100,
-            **trade,
-        }
+            "entry_date": position[
+                "entry_date"
+            ].strftime("%Y-%m-%d"),
+            "entry_price": position[
+                "entry_price"
+            ],
+            "score": position["score"],
+        })
 
-        trades.append(trade_record)
+    # --------------------------------------------------------
+    # STATISTICS
+    # --------------------------------------------------------
 
-        open_positions[ticker] = {
-            "exit_index": trade["exit_index"]
-        }
+    if trades:
 
-    return trades
+        results = [
+            t["result_pct"]
+            for t in trades
+        ]
 
+        wins = [
+            x for x in results
+            if x > 0
+        ]
 
-def summarize(trades):
+        losses = [
+            x for x in results
+            if x <= 0
+        ]
 
-    if not trades:
-        return {
-            "trades": 0,
-            "wins": 0,
-            "losses": 0,
-            "hit_rate_pct": 0,
-            "stops": 0,
-            "targets": 0,
-            "max_holding": 0,
-            "average_result_pct": 0,
-            "total_result_pct": 0,
-            "average_win_pct": 0,
-            "average_loss_pct": 0,
-            "average_days": 0,
-        }
+        total_return_pct = (
+            capital / START_CAPITAL - 1
+        ) * 100
 
-    results = [
-        float(t["return_pct"])
-        for t in trades
-    ]
+        average_trade = sum(
+            results
+        ) / len(results)
 
-    wins = [
-        r for r in results
-        if r > 0
-    ]
+        hit_rate = (
+            len(wins)
+            / len(results)
+        ) * 100
 
-    losses = [
-        r for r in results
-        if r <= 0
-    ]
-
-    stops = sum(
-        1
-        for t in trades
-        if t["exit_reason"] == "STOP"
-    )
-
-    targets = sum(
-        1
-        for t in trades
-        if t["exit_reason"] == "TARGET"
-    )
-
-    max_hold = sum(
-        1
-        for t in trades
-        if t["exit_reason"] == "MAX_HOLD"
-    )
-
-    days = [
-        t["holding_days"]
-        for t in trades
-    ]
-
-    return {
-        "trades": len(trades),
-        "wins": len(wins),
-        "losses": len(losses),
-        "hit_rate_pct": (
-            len(wins) / len(trades) * 100
-        ),
-        "stops": stops,
-        "targets": targets,
-        "max_holding": max_hold,
-        "average_result_pct": (
-            sum(results) / len(results)
-        ),
-        "total_result_pct": sum(results),
-        "average_win_pct": (
+        average_win = (
             sum(wins) / len(wins)
             if wins else 0
-        ),
-        "average_loss_pct": (
+        )
+
+        average_loss = (
             sum(losses) / len(losses)
             if losses else 0
-        ),
-        "average_days": (
-            sum(days) / len(days)
-        ),
+        )
+
+        stop_count = sum(
+            1 for t in trades
+            if t["exit_reason"] == "STOP"
+        )
+
+        target_count = sum(
+            1 for t in trades
+            if t["exit_reason"] == "TARGET"
+        )
+
+        max_hold_count = sum(
+            1 for t in trades
+            if t["exit_reason"] == "MAX_HOLD"
+        )
+
+        average_days = sum(
+            t["holding_days"]
+            for t in trades
+        ) / len(trades)
+
+    else:
+
+        total_return_pct = 0
+        average_trade = 0
+        hit_rate = 0
+        average_win = 0
+        average_loss = 0
+        stop_count = 0
+        target_count = 0
+        max_hold_count = 0
+        average_days = 0
+
+    # --------------------------------------------------------
+    # EQUITY / DRAWDOWN
+    # --------------------------------------------------------
+
+    equity_df = pd.DataFrame(
+        equity_curve
+    )
+
+    equity_df["peak"] = (
+        equity_df["capital"]
+        .cummax()
+    )
+
+    equity_df["drawdown_pct"] = (
+        equity_df["capital"]
+        / equity_df["peak"]
+        - 1
+    ) * 100
+
+    max_drawdown = (
+        equity_df["drawdown_pct"].min()
+    )
+
+    # --------------------------------------------------------
+    # YEARLY RESULTS
+    # --------------------------------------------------------
+
+    yearly = {}
+
+    for trade in trades:
+
+        year = trade["exit_date"][:4]
+
+        if year not in yearly:
+            yearly[year] = {
+                "trades": 0,
+                "wins": 0,
+                "losses": 0,
+                "result_sum_pct": 0.0,
+            }
+
+        yearly[year]["trades"] += 1
+
+        yearly[year][
+            "result_sum_pct"
+        ] += trade["result_pct"]
+
+        if trade["result_pct"] > 0:
+            yearly[year]["wins"] += 1
+        else:
+            yearly[year]["losses"] += 1
+
+    # --------------------------------------------------------
+    # COMPOUNDED YEARLY RETURN
+    # --------------------------------------------------------
+
+    yearly_capital = START_CAPITAL
+
+    yearly_compounded = {}
+
+    for year in sorted(yearly):
+
+        year_trades = [
+            t for t in trades
+            if t["exit_date"][:4] == year
+        ]
+
+        capital_before_year = (
+            yearly_capital
+        )
+
+        for trade in year_trades:
+
+            yearly_capital *= (
+                1
+                + trade["result_pct"]
+                / 100
+            )
+
+        year_return = (
+            yearly_capital
+            / capital_before_year
+            - 1
+        ) * 100
+
+        yearly_compounded[year] = {
+            "start_capital":
+                capital_before_year,
+
+            "end_capital":
+                yearly_capital,
+
+            "return_pct":
+                year_return,
+
+            "trades":
+                len(year_trades),
+        }
+
+    # --------------------------------------------------------
+    # CAGR
+    # --------------------------------------------------------
+
+    first_date = pd.to_datetime(
+        equity_curve[0]["date"]
+    )
+
+    last_date = pd.to_datetime(
+        equity_curve[-1]["date"]
+    )
+
+    years = (
+        (last_date - first_date).days
+        / 365.25
+    )
+
+    if years > 0:
+
+        cagr = (
+            (
+                capital
+                / START_CAPITAL
+            ) ** (1 / years)
+            - 1
+        ) * 100
+
+    else:
+
+        cagr = 0
+
+    # --------------------------------------------------------
+    # RESULT
+    # --------------------------------------------------------
+
+    return {
+
+        "settings": {
+
+            "model": "v1.3",
+
+            "starting_capital":
+                START_CAPITAL,
+
+            "max_positions":
+                MAX_POSITIONS,
+
+            "stop_loss_pct":
+                STOP_LOSS_PCT,
+
+            "target_pct":
+                target_pct,
+
+            "max_hold_days":
+                MAX_HOLD_DAYS,
+
+            "entry":
+                "next_day_open",
+
+            "same_day_stop_first":
+                True,
+
+            "commission":
+                0,
+
+            "slippage":
+                0,
+
+            "universe":
+                len(tickers),
+        },
+
+        "summary": {
+
+            "trades":
+                len(trades),
+
+            "wins":
+                len(wins)
+                if trades else 0,
+
+            "losses":
+                len(losses)
+                if trades else 0,
+
+            "hit_rate_pct":
+                hit_rate,
+
+            "stops":
+                stop_count,
+
+            "targets":
+                target_count,
+
+            "max_holding":
+                max_hold_count,
+
+            "average_result_pct":
+                average_trade,
+
+            "total_result_pct":
+                total_return_pct,
+
+            "average_win_pct":
+                average_win,
+
+            "average_loss_pct":
+                average_loss,
+
+            "average_days":
+                average_days,
+
+            "max_drawdown_pct":
+                max_drawdown,
+
+            "cagr_pct":
+                cagr,
+
+            "final_capital":
+                capital,
+
+            "open_positions_at_end":
+                len(open_at_end),
+        },
+
+        "yearly":
+            yearly,
+
+        "yearly_compounded":
+            yearly_compounded,
+
+        "trades":
+            trades,
+
+        "open_positions_at_end":
+            open_at_end,
+
+        "equity_curve":
+            equity_curve,
     }
 
 
-def main():
+# ------------------------------------------------------------
+# RUN BOTH TARGETS
+# ------------------------------------------------------------
 
-    print("")
-    print("======================================")
-    print(" OMX RANKED BACKTEST")
-    print(" v1.3 score – TOP 1 / TOP 2")
-    print("======================================")
-    print("")
+results = {
 
-    raw = load_data()
-    data = normalize_data(raw)
+    "model":
+        "OMX Swing Scanner v1.3",
 
-    print("")
-    print("Bygger dagliga kandidater...")
-    candidates_by_date = build_daily_candidates(data)
+    "description":
+        "Final test: maximum 2 simultaneous positions",
 
-    number_of_candidate_days = len(
-        candidates_by_date
+    "data_period": {
+
+        "from":
+            str(dates[0].date()),
+
+        "to":
+            str(dates[-1].date()),
+
+        "trading_days":
+            len(dates),
+    },
+
+    "scenarios": {
+
+        "target_10":
+            run_backtest(10.0),
+
+        "target_15":
+            run_backtest(15.0),
+    },
+}
+
+
+# ------------------------------------------------------------
+# SAVE
+# ------------------------------------------------------------
+
+OUTPUT_FILE.parent.mkdir(
+    exist_ok=True
+)
+
+with open(
+    OUTPUT_FILE,
+    "w",
+    encoding="utf-8"
+) as f:
+
+    json.dump(
+        results,
+        f,
+        indent=2,
+        ensure_ascii=False
+    )
+
+
+print()
+print("=" * 60)
+print("KLART")
+print("=" * 60)
+
+for name, scenario in results[
+    "scenarios"
+].items():
+
+    s = scenario["summary"]
+
+    print()
+    print(name)
+
+    print(
+        f"Affärer: {s['trades']}"
     )
 
     print(
-        f"Antal dagar med minst en "
-        f"BEVAKA/KÖP-kandidat: "
-        f"{number_of_candidate_days}"
+        f"Träffsäkerhet: "
+        f"{s['hit_rate_pct']:.2f}%"
     )
 
-    results = {
-        "settings": {
-            "model": "v1.3",
-            "min_score": MIN_SCORE,
-            "stop_loss_pct": STOP_LOSS * 100,
-            "max_hold_days": MAX_HOLD_DAYS,
-            "entry": "next_day_open",
-            "same_day_stop_first": True,
-            "ranking": [
-                "score_desc",
-                "relative_strength_desc",
-                "pullback_desc",
-                "ticker_asc",
-            ],
-            "note": (
-                "Top 1/Top 2 simulation. "
-                "No commissions or slippage. "
-                "Current 24-stock universe."
-            ),
-        },
-        "scenarios": {},
-        "daily_rankings": {},
-    }
-
-    # Spara även ranking dag för dag.
-    # Det gör att vi senare kan se exakt vilka aktier
-    # som valdes.
-
-    for date, candidates in candidates_by_date.items():
-
-        results["daily_rankings"][date] = [
-            {
-                "rank": rank + 1,
-                "ticker": candidate["ticker"],
-                "score": candidate["score"],
-                "rsi": round(
-                    candidate["rsi"], 2
-                ),
-                "relative_strength": (
-                    round(
-                        candidate["relative_strength"],
-                        2,
-                    )
-                    if candidate["relative_strength"]
-                    is not None
-                    else None
-                ),
-                "pullback": round(
-                    candidate["pullback"],
-                    2,
-                ),
-            }
-            for rank, candidate
-            in enumerate(candidates)
-        ]
-
-    for number_of_positions in [1, 2]:
-
-        for target in TARGETS:
-
-            key = (
-                f"top{number_of_positions}"
-                f"_target{int(target * 100)}"
-            )
-
-            print("")
-            print(
-                f"Kör scenario: {key}"
-            )
-
-            trades = run_ranked_backtest(
-                candidates_by_date,
-                data,
-                number_of_positions,
-                target,
-            )
-
-            summary = summarize(trades)
-
-            results["scenarios"][key] = {
-                "settings": {
-                    "positions": number_of_positions,
-                    "target_pct": target * 100,
-                },
-                "summary": summary,
-                "trades": trades,
-            }
-
-            print(
-                f"  Trades: "
-                f"{summary['trades']}"
-            )
-
-            print(
-                f"  Träffprocent: "
-                f"{summary['hit_rate_pct']:.2f}%"
-            )
-
-            print(
-                f"  Snitt: "
-                f"{summary['average_result_pct']:.3f}%"
-            )
-
-            print(
-                f"  Total: "
-                f"{summary['total_result_pct']:.3f}%"
-            )
-
-    OUTPUT_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True,
+    print(
+        f"Slutkapital: "
+        f"{s['final_capital']:.2f} kr"
     )
 
-    with open(
-        OUTPUT_FILE,
-        "w",
-        encoding="utf-8",
-    ) as f:
-        json.dump(
-            results,
-            f,
-            ensure_ascii=False,
-            indent=2,
-            default=str,
-        )
+    print(
+        f"Total avkastning: "
+        f"{s['total_result_pct']:.2f}%"
+    )
 
-    print("")
-    print("======================================")
-    print("KLART")
-    print(f"Resultat sparat i:")
-    print(f"{OUTPUT_FILE}")
-    print("======================================")
-    print("")
+    print(
+        f"CAGR: "
+        f"{s['cagr_pct']:.2f}%"
+    )
 
+    print(
+        f"Max drawdown: "
+        f"{s['max_drawdown_pct']:.2f}%"
+    )
 
-if __name__ == "__main__":
-    main()
+    print(
+        f"Genomsnitt/affär: "
+        f"{s['average_result_pct']:.3f}%"
+    )
+
+    print(
+        f"Stoppar: "
+        f"{s['stops']}"
+    )
+
+    print(
+        f"Targets: "
+        f"{s['targets']}"
+    )
+
+    print(
+        f"20-dagars exits: "
+        f"{s['max_holding']}"
+    )
+
+print()
+print(
+    f"Resultat sparat i: "
+    f"{OUTPUT_FILE}"
+)
