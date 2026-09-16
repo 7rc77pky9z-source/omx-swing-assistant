@@ -218,7 +218,7 @@ data = {}
 
 for ticker, values in raw_data.items():
 
-    if ticker == "generated_at_utc":
+    if ticker in ["generated_at_utc", "source"]:
         continue
 
     print("TICKER:", ticker)
@@ -226,6 +226,7 @@ for ticker, values in raw_data.items():
     print("FIRST:", values[0] if isinstance(values, list) and len(values) > 0 else values)
 
     df = pd.DataFrame(values)
+    
 
     df["Date"] = pd.to_datetime(df["Date"])
     df = df.set_index("Date")
