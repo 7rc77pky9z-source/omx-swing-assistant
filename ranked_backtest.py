@@ -216,6 +216,8 @@ with open(DATA_FILE, "r", encoding="utf-8") as f:
 
 data = {}
 
+raw_data = raw_data["stocks"]
+
 for ticker, values in raw_data.items():
 
     if not isinstance(values, list):
