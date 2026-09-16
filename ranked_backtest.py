@@ -219,7 +219,7 @@ data = {}
 for ticker, values in raw_data.items():
 
     if not isinstance(values, list):
-    continue
+        continue
 
     print("TICKER:", ticker)
     print("TYPE:", type(values))
