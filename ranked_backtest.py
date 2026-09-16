@@ -218,8 +218,8 @@ data = {}
 
 for ticker, values in raw_data.items():
 
-    if ticker in ["generated_at_utc", "source"]:
-        continue
+    if not isinstance(values, list):
+    continue
 
     print("TICKER:", ticker)
     print("TYPE:", type(values))
