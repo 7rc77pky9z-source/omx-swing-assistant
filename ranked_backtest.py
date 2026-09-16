@@ -218,6 +218,10 @@ data = {}
 
 for ticker, values in raw_data.items():
 
+    print("TICKER:", ticker)
+    print("TYPE:", type(values))
+    print("FIRST:", values[0] if isinstance(values, list) and len(values) > 0 else values)
+
     df = pd.DataFrame(values)
 
     df["Date"] = pd.to_datetime(df["Date"])
