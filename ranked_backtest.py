@@ -245,6 +245,7 @@ for ticker, values in raw_data.items():
 
     data[ticker] = df
 
+print("INLÄSTA TICKERS:", list(data.keys()))
 
 benchmark = data["^OMXS30"]
 
