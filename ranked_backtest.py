@@ -236,23 +236,23 @@ for ticker, values in raw_data.items():
     df = df.sort_index()
 
     for column in ["open", "high", "low", "close"]:
-    df[column] = pd.to_numeric(
-        df[column],
-        errors="coerce"
-    )
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce"
+        )
 
     df = df.dropna(
-    subset=["open", "high", "low", "close"]
+        subset=["open", "high", "low", "close"]
     )
 
     df = df.rename(columns={
-    "open": "Open",
-    "high": "High",
-    "low": "Low",
-    "close": "Close"
-}) 
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close"
+    }) 
 
-     data[ticker] = df
+    data[ticker] = df
 
 print("INLÄSTA TICKERS:", list(data.keys()))
 
