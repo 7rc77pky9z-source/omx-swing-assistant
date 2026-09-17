@@ -219,7 +219,7 @@ data = {}
 raw_data = raw_data["stocks"]
 
 for ticker, values in raw_data.items():
-
+    
     if not isinstance(values, list):
         continue
 
@@ -230,27 +230,29 @@ for ticker, values in raw_data.items():
     df = pd.DataFrame(values)
     
 
-   df["date"] = pd.to_datetime(df["date"])
-df = df.set_index("date")
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date")
 
-df = df.sort_index()
+    df = df.sort_index()
 
-for column in ["open", "high", "low", "close"]:
+    for column in ["open", "high", "low", "close"]:
     df[column] = pd.to_numeric(
         df[column],
         errors="coerce"
     )
 
-df = df.dropna(
+    df = df.dropna(
     subset=["open", "high", "low", "close"]
-)
+    )
 
-df = df.rename(columns={
+    df = df.rename(columns={
     "open": "Open",
     "high": "High",
     "low": "Low",
     "close": "Close"
 }) 
+
+     data[ticker] = df
 
 print("INLÄSTA TICKERS:", list(data.keys()))
 
